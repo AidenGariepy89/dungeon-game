@@ -5,18 +5,17 @@ const zigimg = @import("zigimg");
 const w = @import("../window/window.zig");
 const tm = @import("tilemap.zig");
 const asset = @import("../asset/asset.zig");
+const AssetServer = asset.AssetServer;
 
 pub const GS = struct {
     alloc: std.mem.Allocator,
-    assets: asset.AssetServer,
+    assets: AssetServer,
     cam: rl.Camera2D,
     camSpeed: f32,
     dt: f32,
-    // tiles: []const tm.Tile,
-    // tilemap: rl.Texture2D,
-    tilemapAsset: asset.Asset,
-    textureTest: rl.Texture2D,
-    png: zigimg.Image,
+    tiles: []const tm.Tile,
+    tilemap: rl.Texture2D,
+    tilemapTag: asset.ImageTag,
 };
 
 pub fn setup(alloc: std.mem.Allocator) !GS {
@@ -27,24 +26,12 @@ pub fn setup(alloc: std.mem.Allocator) !GS {
         .target = .{ .x = 0, .y = 0 },
     };
 
-    // const rawTiles = tm.loadTilemap();
-    // const tiles: []const tm.Tile = rawTiles.*[0..];
-    //
-    // const path = "./src/resources/tilemaps/dungeon.png";
-    //
-    // const tilemap = try tm.openTexture(path);
+    const rawTiles = tm.loadTilemap();
+    const tiles: []const tm.Tile = rawTiles.*[0..];
 
-    var assetServer = asset.AssetServer.init(alloc);
-    const handle = try assetServer.registerAsset("../resources/tilemaps/dungeon.png");
-    const png: zigimg.Image = try assetServer.openPng(handle);
-    const img = rl.Image{
-        .width = @intCast(png.width),
-        .height = @intCast(png.height),
-        .mipmaps = 1,
-        .format = .pixelformat_uncompressed_r8g8b8a8,
-        .data = @constCast(png.rawBytes().ptr),
-    };
-    const texture = rl.loadTextureFromImage(img);
+    var assetServer = AssetServer.init(alloc);
+    const tag = assetServer.registerImage("../resources/tilemaps/dungeon.png");
+    const tilemap = assetServer.loadTexture(tag);
 
     return GS{
         .alloc = alloc,
@@ -52,11 +39,9 @@ pub fn setup(alloc: std.mem.Allocator) !GS {
         .cam = cam,
         .camSpeed = 200,
         .dt = 0,
-        // .tiles = tiles,
-        // .tilemap = tilemap,
-        .tilemapAsset = handle,
-        .textureTest = texture,
-        .png = png,
+        .tiles = tiles,
+        .tilemap = tilemap,
+        .tilemapTag = tag,
     };
 }
 
@@ -87,21 +72,15 @@ pub fn run(gs: *GS) !bool {
 }
 
 pub fn deinit(gs: *GS) void {
-    // gs.tilemap.unload();
-    gs.textureTest.unload();
-    gs.png.deinit();
     gs.assets.deinit();
 }
 
 fn worldDraw(gs: *GS) void {
-    // for (gs.tiles) |tile| {
-    //     tile.draw(&gs.tilemap);
-    // }
+    for (gs.tiles) |tile| {
+        tile.draw(gs.tilemap);
+    }
 
     rl.drawRectangle(0, 0, 1, 1, rl.Color.black);
-
-    // gs.tilemap.draw(0, -20, rl.Color.white);
-    gs.textureTest.draw(0, -30, rl.Color.white);
 }
 
 fn uiDraw(gs: *GS) void {

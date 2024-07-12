@@ -21,7 +21,7 @@ pub const Tile = struct {
         return self.pos.scale(TileSize);
     }
 
-    pub fn draw(self: Tile, tilemap: *rl.Texture2D) void {
+    pub fn draw(self: Tile, tilemap: rl.Texture2D) void {
         const slice = rl.Rectangle{
             .x = @floatFromInt(self.tile * TileSize),
             .y = 0,
