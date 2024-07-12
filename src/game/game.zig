@@ -1,63 +1,62 @@
 const std = @import("std");
 const rl = @import("raylib");
+const zigimg = @import("zigimg");
 
 const w = @import("../window/window.zig");
-
-const WORLD_TILE_WIDTH: usize = 16;
-const WORLD_TILE_SIZE = WORLD_TILE_WIDTH * WORLD_TILE_WIDTH;
-const Tile = struct {
-    pos: rl.Vector2,
-    size: f32,
-    color: rl.Color,
-
-    fn draw(self: Tile) void {
-        const rect = rl.Rectangle{
-            .x = self.pos.x,
-            .y = self.pos.y,
-            .width = self.size,
-            .height = self.size,
-        };
-
-        rl.drawRectangleRec(rect, self.color);
-    }
-};
+const tm = @import("tilemap.zig");
+const asset = @import("../asset/asset.zig");
 
 pub const GS = struct {
+    alloc: std.mem.Allocator,
+    assets: asset.AssetServer,
     cam: rl.Camera2D,
     camSpeed: f32,
     dt: f32,
-    tiles: [WORLD_TILE_SIZE]Tile,
+    // tiles: []const tm.Tile,
+    // tilemap: rl.Texture2D,
+    tilemapAsset: asset.Asset,
+    textureTest: rl.Texture2D,
+    png: zigimg.Image,
 };
 
-pub fn setup() GS {
+pub fn setup(alloc: std.mem.Allocator) !GS {
     const cam = rl.Camera2D{
         .rotation = 0,
-        .zoom = 1,
+        .zoom = 12,
         .offset = .{ .x = @floatFromInt(w.wh()), .y = @floatFromInt(w.hh()) },
         .target = .{ .x = 0, .y = 0 },
     };
 
-    var tiles: [WORLD_TILE_SIZE]Tile = undefined;
-    const size: f32 = 16;
+    // const rawTiles = tm.loadTilemap();
+    // const tiles: []const tm.Tile = rawTiles.*[0..];
+    //
+    // const path = "./src/resources/tilemaps/dungeon.png";
+    //
+    // const tilemap = try tm.openTexture(path);
 
-    for (0..WORLD_TILE_SIZE) |i| {
-        const color = if (i % 2 == 0) rl.Color.light_gray else rl.Color.dark_gray;
-        const pos = rl.Vector2{
-            .x = @as(f32, @floatFromInt(i % WORLD_TILE_WIDTH)) * size,
-            .y = @as(f32, @floatFromInt(i / WORLD_TILE_WIDTH)) * size,
-        };
-        tiles[i] = Tile{
-            .color = color,
-            .size = size,
-            .pos = pos,
-        };
-    }
+    var assetServer = asset.AssetServer.init(alloc);
+    const handle = try assetServer.registerAsset("../resources/tilemaps/dungeon.png");
+    const png: zigimg.Image = try assetServer.openPng(handle);
+    const img = rl.Image{
+        .width = @intCast(png.width),
+        .height = @intCast(png.height),
+        .mipmaps = 1,
+        .format = .pixelformat_uncompressed_r8g8b8a8,
+        .data = @constCast(png.rawBytes().ptr),
+    };
+    const texture = rl.loadTextureFromImage(img);
 
     return GS{
+        .alloc = alloc,
+        .assets = assetServer,
         .cam = cam,
         .camSpeed = 200,
         .dt = 0,
-        .tiles = tiles,
+        // .tiles = tiles,
+        // .tilemap = tilemap,
+        .tilemapAsset = handle,
+        .textureTest = texture,
+        .png = png,
     };
 }
 
@@ -87,12 +86,22 @@ pub fn run(gs: *GS) !bool {
     return false;
 }
 
-fn worldDraw(gs: *GS) void {
-    for (&gs.tiles) |*tile| {
-        tile.draw();
-    }
+pub fn deinit(gs: *GS) void {
+    // gs.tilemap.unload();
+    gs.textureTest.unload();
+    gs.png.deinit();
+    gs.assets.deinit();
+}
 
-    rl.drawRectangle(0, 0, 2, 2, rl.Color.black);
+fn worldDraw(gs: *GS) void {
+    // for (gs.tiles) |tile| {
+    //     tile.draw(&gs.tilemap);
+    // }
+
+    rl.drawRectangle(0, 0, 1, 1, rl.Color.black);
+
+    // gs.tilemap.draw(0, -20, rl.Color.white);
+    gs.textureTest.draw(0, -30, rl.Color.white);
 }
 
 fn uiDraw(gs: *GS) void {
