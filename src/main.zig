@@ -24,7 +24,7 @@ pub fn main() !void {
     game.deinit(&gameState);
 }
 
-const tm = @import("game/tilemap.zig");
+const tm = @import("2D/tilemap.zig");
 const as = @import("asset/asset.zig");
 
 test { _ = tm; }
