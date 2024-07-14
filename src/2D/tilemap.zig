@@ -133,15 +133,11 @@ pub fn Tilemap(comptime tileSize: usize) type {
 }
 
 test "set tile" {
-    const fakeTexture = rl.Texture2D{
-        .width = 24,
-        .height = 8,
-        .format = .pixelformat_uncompressed_r8g8b8a8,
-        .mipmaps = 1,
-        .id = 0,
-    };
+    const testTag: asset.ImageTag = 5; // not a real tag, don't do this
+    var testServer = asset.AssetServer.init(t.allocator);
+    defer testServer.deinit();
 
-    var tilemap = Tilemap(8).init(fakeTexture, t.allocator);
+    var tilemap = Tilemap(8).init(t.allocator, rl.Vector2.zero(), 2, testTag, &testServer);
     defer tilemap.deinit();
 
     tilemap.setTile(1, 1, 1);

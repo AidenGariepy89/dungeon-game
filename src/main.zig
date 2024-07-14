@@ -26,6 +26,8 @@ pub fn main() !void {
 
 const tm = @import("2D/tilemap.zig");
 const as = @import("asset/asset.zig");
+const node = @import("2D/node.zig");
 
 test { _ = tm; }
 test { _ = as; }
+test { _ = node; }
