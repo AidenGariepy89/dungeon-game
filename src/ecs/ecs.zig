@@ -26,8 +26,9 @@ const EntityManager = struct {
         };
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: *Self) void {
         self.availableEntities.deinit();
+        self.* = undefined;
     }
 
     pub fn createEntity(self: *Self) Entity {
@@ -81,12 +82,13 @@ test "signatures" {
 }
 
 const MAX_COMPONENTS = 32;
-const Component = u8;
+const ComponentType = u8;
 
 const IComponentArray = struct {
     const Self = @This();
     const VTable = struct {
         entityDestroyed: *const fn (ptr: *anyopaque, entity: Entity) void,
+        deinit: *const fn (ptr: *anyopaque, alloc: ?std.mem.Allocator) void,
     };
 
     ptr: *anyopaque,
@@ -96,11 +98,16 @@ const IComponentArray = struct {
         self.vtable.entityDestroyed(self.ptr, entity);
     }
 
+    pub fn deinit(self: Self, alloc: ?std.mem.Allocator) void {
+        self.vtable.deinit(self.ptr, alloc);
+    }
+
     pub fn init(ptr: anytype) Self {
         const T = @TypeOf(ptr);
         const ptrInfo = @typeInfo(T);
 
         assert(ptrInfo == .Pointer);
+        assert(ptrInfo.Pointer.size == .One);
         assert(@typeInfo(ptrInfo.Pointer.child) == .Struct);
 
         const vtable = struct {
@@ -108,12 +115,22 @@ const IComponentArray = struct {
                 const self: T = @ptrCast(@alignCast(pointer));
                 self.entityDestroyed(entity);
             }
+            fn deinit(pointer: *anyopaque, alloc: ?std.mem.Allocator) void {
+                const self: T = @ptrCast(@alignCast(pointer));
+                self.deinit();
+
+                // feels terrible
+                if (alloc) |a| {
+                    a.destroy(self);
+                }
+            }
         };
 
         return Self{
             .ptr = ptr,
             .vtable = &.{
                 .entityDestroyed = vtable.entityDestroyed,
+                .deinit = vtable.deinit,
             },
         };
     }
@@ -126,8 +143,6 @@ fn ComponentArray(T: type) type {
         const IndexToEntityHashMap = std.ArrayHashMap(usize, Entity, std.array_hash_map.AutoContext(usize), false);
 
         componentList: [MAX_ENTITIES]T,
-        // entityToIndex: std.ArrayList(usize),
-        // indexToEntity: std.ArrayList(Entity),
         entityToIndex: EntityToIndexHashMap,
         indexToEntity: IndexToEntityHashMap,
         size: usize,
@@ -144,6 +159,7 @@ fn ComponentArray(T: type) type {
         pub fn deinit(self: *Self) void {
             self.entityToIndex.deinit();
             self.indexToEntity.deinit();
+            self.* = undefined;
         }
 
         pub fn insertData(self: *Self, entity: Entity, component: T) !void {
@@ -201,4 +217,140 @@ test "component array dummy data" {
 
     compArr.removeData(fakeEntity);
     try t.expect(compArr.getData(fakeEntity) == null);
+}
+
+test "component array interface" {
+    var compArr = ComponentArray(i32).init(t.allocator);
+
+    const fakeEntity = 5;
+    const fakeComponent = 10;
+    try compArr.insertData(fakeEntity, fakeComponent);
+
+    const interface = compArr.getIComponentArray();
+    interface.entityDestroyed(fakeEntity);
+
+    try t.expect(compArr.getData(fakeEntity) == null);
+
+    interface.deinit(null);
+}
+
+const ComponentManager = struct {
+    const Self = @This();
+    const ComponentMap = std.StringArrayHashMap(ComponentType);
+    const ComponentArrayMap = std.StringArrayHashMap(IComponentArray);
+
+    alloc: std.mem.Allocator,
+    componentTypes: ComponentMap,
+    componentArrays: ComponentArrayMap,
+    nextComponent: ComponentType = 0,
+
+    pub fn init(alloc: std.mem.Allocator) Self {
+        return Self{
+            .alloc = alloc,
+            .componentTypes = ComponentMap.init(alloc),
+            .componentArrays = ComponentArrayMap.init(alloc),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        // dont need to free keys in self.componentTypes because it would be a double free
+        var arraysIter = self.componentArrays.iterator();
+        while (true) {
+            const entry = arraysIter.next() orelse break;
+            self.alloc.free(entry.key_ptr.*);
+            entry.value_ptr.deinit(self.alloc);
+        }
+
+        self.componentTypes.deinit();
+        self.componentArrays.deinit();
+
+        self.* = undefined;
+    }
+
+    pub fn registerComponent(self: *Self, T: type) void {
+        const rawStr = @typeName(T);
+        const newStr: []u8 = self.alloc.alloc(u8, rawStr.len) catch unreachable;
+        std.mem.copyForwards(u8, newStr, rawStr);
+
+        assert(self.componentTypes.get(newStr) == null);
+
+        self.componentTypes.put(newStr, self.nextComponent) catch unreachable;
+
+        const compArr = self.alloc.create(ComponentArray(T)) catch unreachable;
+        compArr.* = ComponentArray(T).init(self.alloc);
+        self.componentArrays.put(newStr, compArr.getIComponentArray()) catch unreachable;
+
+        self.nextComponent += 1;
+    }
+
+    pub fn getComponentType(self: Self, T: type) ?ComponentType {
+        const rawStr = @typeName(T);
+        const typeName: []const u8 = rawStr.*[0..rawStr.len];
+
+        return self.componentTypes.get(typeName);
+    }
+
+    pub fn addComponent(self: *Self, entity: Entity, T: type, component: T) !void {
+        try self.getComponentArray(T).?.insertData(entity, component);
+    }
+
+    pub fn removeComponent(self: *Self, entity: Entity, T: type) void {
+        self.getComponentArray(T).?.removeData(entity);
+    }
+
+    pub fn getComponent(self: *Self, entity: Entity, T: type) ?*T {
+        return self.getComponentArray(T).?.getData(entity);
+    }
+
+    pub fn entityDestroyed(self: *Self, entity: Entity) void {
+        var iter = self.componentArrays.iterator();
+        var entry = iter.next();
+        while (entry != null) : (entry = iter.next()) {
+            entry.?.value_ptr.entityDestroyed(entity);
+        }
+    }
+
+    fn getComponentArray(self: Self, T: type) ?*ComponentArray(T) {
+        const rawStr = @typeName(T);
+        const typeName: []const u8 = rawStr.*[0..rawStr.len];
+
+        const result = self.componentArrays.get(typeName) orelse return null;
+
+        const ptr: *ComponentArray(T) = @ptrCast(@alignCast(result.ptr));
+        return ptr;
+    }
+};
+
+test "component manager" {
+    var cm = ComponentManager.init(t.allocator);
+    defer cm.deinit();
+
+    const Pos = struct {
+        x: f32,
+        y: f32,
+    };
+    const Sprite = struct {
+        idx: u32,
+    };
+
+    cm.registerComponent(Pos);
+    cm.registerComponent(Sprite);
+
+    const fakeEntity: Entity = 5;
+    const data = Pos{ .x = 5, .y = 10 };
+
+    try cm.addComponent(fakeEntity, Pos, data);
+
+    var posRes = cm.getComponent(fakeEntity, Pos);
+    try t.expect(posRes != null);
+    const entityPosition = posRes.?;
+    try t.expect(entityPosition.x == data.x);
+    try t.expect(entityPosition.y == data.y);
+
+    const spriteRes = cm.getComponent(fakeEntity, Sprite);
+    try t.expect(spriteRes == null);
+
+    cm.removeComponent(fakeEntity, Pos);
+    posRes = cm.getComponent(fakeEntity, Pos);
+    try t.expect(posRes == null);
 }
