@@ -5,7 +5,7 @@ const zigimg = @import("zigimg");
 const t = std.testing;
 const assert = std.debug.assert;
 
-pub const ImageTag = usize;
+pub const ImageTag = u32;
 
 pub const AssetServer = struct {
     const Self = @This();
@@ -43,9 +43,8 @@ pub const AssetServer = struct {
 
         for (0..self.images.len) |i| {
             if (self.images[i] == null) {
-                const tag = i;
-                self.images[tag] = png;
-                return tag;
+                self.images[i] = png;
+                return @intCast(i);
             }
         }
 

@@ -1,23 +1,45 @@
 const std = @import("std");
 const rl = @import("raylib");
 const zigimg = @import("zigimg");
-
 const w = @import("../window/window.zig");
 const asset = @import("../asset/asset.zig");
-
+const print = std.debug.print;
+const renderTilemaps = @import("../2D/tilemap.zig").renderTilemaps;
 const Tilemap = @import("../2D/tilemap.zig").Tilemap;
 const AssetServer = asset.AssetServer;
+const Player = @import("../actors/player.zig").Player;
+const Node = @import("../2D/node.zig").Node;
+const ECS = @import("../ecs/ECS.zig");
+const Renderer = @import("../2D/Renderer.zig");
+const GameState = @import("GameState.zig");
 
-pub const GS = struct {
-    alloc: std.mem.Allocator,
-    assets: AssetServer,
-    cam: rl.Camera2D,
-    camSpeed: f32,
-    dt: f32,
-    tilemap: Tilemap(8),
+const TestSprite = struct {
+    pos: rl.Vector2 = .{ .x = 0, .y = 0 },
+    size: rl.Vector2 = .{ .x = 2, .y = 2 },
 };
 
-pub fn setup(alloc: std.mem.Allocator) !GS {
+fn drawSystem(gs: *GameState) !void {
+    var ecs = &gs.ecs;
+    var buf: [32]ECS.Entity = undefined;
+    const res = try ecs.query(TestSprite, &buf);
+
+    for (res) |entity| {
+        const box = ecs.getComponent(TestSprite, entity).?;
+        rl.drawRectangleV(box.pos, box.size, rl.Color.red);
+    }
+}
+
+fn moveSystem(gs: *GameState) !void {
+    var buf: [32]ECS.Entity = undefined;
+    const res = try gs.ecs.query(TestSprite, &buf);
+
+    for (res) |entity| {
+        const box = gs.ecs.getComponent(TestSprite, entity).?;
+        box.pos.x += 8.0 * gs.dt;
+    }
+}
+
+pub fn setup(allocator: std.mem.Allocator) !GameState {
     const cam = rl.Camera2D{
         .rotation = 0,
         .zoom = 12,
@@ -25,34 +47,55 @@ pub fn setup(alloc: std.mem.Allocator) !GS {
         .target = .{ .x = 0, .y = 0 },
     };
 
-    var assetServer = AssetServer.init(alloc);
+    var asset_server = AssetServer.init(allocator);
 
-    var tilemap = Tilemap(8).init(
-        alloc,
-        rl.Vector2.zero(),
-        14,
-        assetServer.registerImage("../resources/tilemaps/dungeon.png"),
-        &assetServer,
+    var ecs = ECS.init(allocator);
+
+    var tilemap = Tilemap.init(
+        allocator,
+        asset_server.registerImage("../resources/tilemaps/dungeon.png"),
+        null,
     );
+    try tilemap.loadLevel("../resources/levels/1");
 
-    tilemap.loadLevel("../resources/levels/1");
+    _ = try ecs.newEntity(.{tilemap});
+    ecs.addSystem(&renderTilemaps);
 
-    return GS{
-        .alloc = alloc,
-        .assets = assetServer,
+    for (0..31) |i| {
+        var box = TestSprite{};
+        box.pos.y = @floatFromInt(4 * i);
+        _ = try ecs.newEntity(.{box});
+    }
+    ecs.addSystem(&moveSystem);
+    ecs.addSystem(&drawSystem);
+
+    return GameState{
+        .allocator = allocator,
+        .asset_server = asset_server,
+        .ecs = ecs,
+
         .cam = cam,
         .camSpeed = 200,
-        .dt = 0,
-        .tilemap = tilemap,
+        // .assets = assetServer,
+        // .tilemap = tilemap,
+        // .player = player,
+        // .nodes = nodes,
     };
 }
 
-pub fn deinit(gs: *GS) void {
-    gs.tilemap.deinit();
-    gs.assets.deinit();
+pub fn deinit(gs: *GameState) void {
+    var buf: [1]ECS.Entity = undefined;
+    const res = gs.ecs.query(Tilemap, &buf) catch unreachable;
+    for (res) |entity| {
+        var tilemap = gs.ecs.getComponent(Tilemap, entity).?;
+        tilemap.deinit();
+    }
+
+    gs.ecs.deinit();
+    gs.asset_server.deinit();
 }
 
-pub fn run(gs: *GS) !bool {
+pub fn run(gs: *GameState) !bool {
     gs.dt = rl.getFrameTime();
 
     camMove(gs);
@@ -68,7 +111,9 @@ pub fn run(gs: *GS) !bool {
     rl.clearBackground(rl.Color.white);
 
     rl.beginMode2D(gs.cam);
-    worldDraw(gs);
+    // worldDraw(gs);
+    try gs.ecs.update(gs);
+
     rl.endMode2D();
 
     uiDraw(gs);
@@ -78,15 +123,20 @@ pub fn run(gs: *GS) !bool {
     return false;
 }
 
-fn worldDraw(gs: *GS) void {
-    gs.tilemap.draw();
+fn worldDraw(gs: *GameState) void {
+    _ = gs;
+    // gs.tilemap.draw();
+    //
+    // for (gs.nodes.items) |node| {
+    //     node.draw();
+    // }
 }
 
-fn uiDraw(gs: *GS) void {
+fn uiDraw(gs: *GameState) void {
     _ = gs;
 }
 
-fn camMove(gs: *GS) void {
+fn camMove(gs: *GameState) void {
     var dir = rl.Vector2.zero();
 
     if (rl.isKeyDown(.key_l) or rl.isKeyDown(.key_right)) {

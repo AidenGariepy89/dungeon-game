@@ -4,18 +4,19 @@ const t = std.testing;
 const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const GameState = @import("../game/GameState.zig");
 
 const Self = @This();
 
 const MAX_ENTITIES = 200;
 const MAX_COMPONENTS = 32;
-const Entity = u32;
-const Component = u8;
-const Signature = std.bit_set.IntegerBitSet(MAX_COMPONENTS);
+pub const Entity = u32;
+pub const Component = u8;
+pub const Signature = std.bit_set.IntegerBitSet(MAX_COMPONENTS);
 
 const ComponentMap = std.StringArrayHashMap(Component);
 const CompArrMap = std.StringArrayHashMap(ComponentArrayGeneric);
-const SystemList = std.ArrayList(*const fn (ecs: *Self) anyerror!void);
+const SystemList = std.ArrayList(*const fn (gs: *GameState) anyerror!void);
 
 allocator: Allocator,
 entity_signatures: [MAX_ENTITIES]Signature,
@@ -47,8 +48,9 @@ pub fn newEntity(self: *Self, components: anytype) !Entity {
     inline for (tuple_info.Struct.fields) |field| {
         var generic = self.getComponentArr(field.type) orelse try self.registerComponent(field.type);
         var comp_arr = generic.toComponentArray(field.type);
-        const ptr: *field.type = @ptrCast(@alignCast(@constCast(field.default_value.?)));
-        try comp_arr.add(ptr.*, entity);
+
+        const comp_item: field.type = @field(components, field.name);
+        try comp_arr.add(comp_item, entity);
 
         const comp = self.getComponentType(field.type).?;
         self.entity_signatures[entity].set(comp);
@@ -57,7 +59,7 @@ pub fn newEntity(self: *Self, components: anytype) !Entity {
     return entity;
 }
 
-pub fn addComponent(self: *Self, T: type, component: T, entity: Entity) !void {
+pub fn addComponent(self: *Self, T: type, component: T, entity: Entity) !*T {
     assert(entity < self.entity_count);
 
     var generic = self.getComponentArr(T) orelse try self.registerComponent(T);
@@ -67,6 +69,8 @@ pub fn addComponent(self: *Self, T: type, component: T, entity: Entity) !void {
 
     const comp = self.getComponentType(T).?;
     self.entity_signatures[entity].set(comp);
+
+    return comp_arr.get(entity).?;
 }
 
 pub fn removeComponent(self: *Self, T: type, entity: Entity) !T {
@@ -135,28 +139,26 @@ pub fn addSystem(self: *Self, comptime func_ptr: anytype) void {
     if (func_info.Fn.params.len != 1) {
         @compileError("Systems must have one param");
     }
-    if (func_info.Fn.params[0].type != *Self) {
-        @compileError("The system param must be *ECS");
+    if (func_info.Fn.params[0].type != *GameState) {
+        @compileError("The system param must be *GameState");
     }
 
     const runner = struct {
-        fn run(ecs: *Self) !void {
-            return @call(builtin.CallModifier.always_inline, func_ptr, .{ecs});
+        fn run(gs: *GameState) !void {
+            return @call(builtin.CallModifier.always_inline, func_ptr, .{gs});
         }
     };
 
     self.systems.append(&runner.run) catch unreachable;
 }
 
-pub fn update(self: *Self) !void {
+pub fn update(self: *Self, gs: *GameState) !void {
     for (self.systems.items) |system| {
-        try system(self);
+        try system(gs);
     }
 }
 
-pub const QueryError = error{
-    NoSpaceLeft
-};
+pub const QueryError = error{NoSpaceLeft};
 
 pub fn query(self: *Self, T: type, buf: []Entity) QueryError![]Entity {
     const comp = self.getComponentType(T).?;
@@ -204,7 +206,7 @@ fn getSigMatches(self: *Self, needle: Signature, buf: []Entity) QueryError![]Ent
 pub fn init(allocator: Allocator) Self {
     return Self{
         .allocator = allocator,
-        .entity_signatures = [_]Signature { Signature.initEmpty() } ** MAX_ENTITIES,
+        .entity_signatures = [_]Signature{Signature.initEmpty()} ** MAX_ENTITIES,
         .comp_arr_map = CompArrMap.init(allocator),
         .component_map = ComponentMap.init(allocator),
         .systems = SystemList.init(allocator),
@@ -276,7 +278,7 @@ fn ComponentArray(T: type) type {
                 .idx_to_entity = Map.init(allocator),
             };
         }
-        
+
         fn deinit(ptr: *anyopaque) void {
             const self: *This = @ptrCast(@alignCast(ptr));
 
@@ -365,9 +367,9 @@ test "Add, remove, and get components" {
     const player1 = Player{ .xp = 0, .health = 100 };
     const player2 = Player{ .xp = 254, .health = 87 };
     const player3 = Player{ .xp = 75, .health = 200 };
-    try ecs.addComponent(Player, player1, e1);
-    try ecs.addComponent(Player, player2, e2);
-    try ecs.addComponent(Player, player3, e3);
+    _ = try ecs.addComponent(Player, player1, e1);
+    _ = try ecs.addComponent(Player, player2, e2);
+    _ = try ecs.addComponent(Player, player3, e3);
 
     try t.expect(ecs.comp_arr_map.count() == 1);
     try t.expect(ecs.componentCount(Player) == 3);
@@ -530,9 +532,9 @@ test "query out of space" {
         y: f32 = 0,
     };
 
-    _ = try ecs.newEntity(.{ Pos{} });
-    _ = try ecs.newEntity(.{ Pos{} });
-    _ = try ecs.newEntity(.{ Pos{} });
+    _ = try ecs.newEntity(.{Pos{}});
+    _ = try ecs.newEntity(.{Pos{}});
+    _ = try ecs.newEntity(.{Pos{}});
 
     var buf: [2]Entity = undefined;
     const res = ecs.query(Pos, &buf);
@@ -546,12 +548,12 @@ test "system test" {
     };
 
     const system = struct {
-        fn moveRight(ecs: *Self) !void {
+        fn moveRight(gs: *GameState) !void {
             var buf: [3]Entity = undefined;
-            const q = try ecs.query(Pos, &buf);
+            const q = try gs.ecs.query(Pos, &buf);
 
             for (q) |entity| {
-                var pos = ecs.getComponent(Pos, entity).?;
+                var pos = gs.ecs.getComponent(Pos, entity).?;
                 pos.x += 1;
             }
         }
@@ -562,11 +564,12 @@ test "system test" {
 
     ecs.addSystem(&system.moveRight);
 
-    const e1 = try ecs.newEntity(.{ Pos{} });
-    const e2 = try ecs.newEntity(.{ Pos{ .x = 10 } });
-    const e3 = try ecs.newEntity(.{ Pos{ .x = -1 } });
+    const e1 = try ecs.newEntity(.{Pos{}});
+    const e2 = try ecs.newEntity(.{Pos{ .x = 10 }});
+    const e3 = try ecs.newEntity(.{Pos{ .x = -1 }});
 
-    try ecs.update();
+    var gs = GameState{ .ecs = ecs };
+    try gs.ecs.update(&gs);
 
     const pos1 = ecs.getComponent(Pos, e1).?;
     const pos2 = ecs.getComponent(Pos, e2).?;

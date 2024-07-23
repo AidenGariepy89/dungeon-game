@@ -27,7 +27,11 @@ pub fn main() !void {
 const tm = @import("2D/tilemap.zig");
 const as = @import("asset/asset.zig");
 const node = @import("2D/node.zig");
+const player = @import("actors/player.zig");
+const ECS = @import("ecs/ECS.zig");
 
 test { _ = tm; }
 test { _ = as; }
 test { _ = node; }
+test { _ = player; }
+test { _ = ECS; }
