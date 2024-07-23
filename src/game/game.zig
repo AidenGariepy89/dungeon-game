@@ -10,7 +10,6 @@ const AssetServer = asset.AssetServer;
 const Player = @import("../actors/player.zig").Player;
 const Node = @import("../2D/node.zig").Node;
 const ECS = @import("../ecs/ECS.zig");
-const Renderer = @import("../2D/Renderer.zig");
 const GameState = @import("GameState.zig");
 
 const TestSprite = struct {

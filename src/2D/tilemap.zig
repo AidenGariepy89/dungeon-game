@@ -10,7 +10,6 @@ const assert = std.debug.assert;
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 const AssetServer = asset.AssetServer;
-const Renderer = @import("../2D/Renderer.zig");
 const GameState = @import("../game/GameState.zig");
 
 pub const Tile = struct {
