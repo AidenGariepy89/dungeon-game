@@ -13,10 +13,14 @@ const MAX_COMPONENTS = 32;
 pub const Entity = u32;
 pub const Component = u8;
 pub const Signature = std.bit_set.IntegerBitSet(MAX_COMPONENTS);
+pub const System = struct {
+    tag: u32,
+    func: *const fn (gs: *GameState) anyerror!void,
+};
 
 const ComponentMap = std.StringArrayHashMap(Component);
 const CompArrMap = std.StringArrayHashMap(ComponentArrayGeneric);
-const SystemList = std.ArrayList(*const fn (gs: *GameState) anyerror!void);
+const SystemList = std.ArrayList(System);
 
 allocator: Allocator,
 entity_signatures: [MAX_ENTITIES]Signature,
@@ -123,7 +127,9 @@ fn componentCount(self: *Self, T: type) usize {
     return comp_arr.components.items.len;
 }
 
-pub fn addSystem(self: *Self, comptime func_ptr: anytype) void {
+/// Add a system to the ECS. Specify a tag to update systems of that tag later.
+/// Tags default to 0.
+pub fn addSystem(self: *Self, comptime func_ptr: anytype, tag: ?u32) void {
     const ptr_info = @typeInfo(@TypeOf(func_ptr));
     if (ptr_info != .Pointer) {
         @compileError("Systems must be function pointers");
@@ -149,12 +155,21 @@ pub fn addSystem(self: *Self, comptime func_ptr: anytype) void {
         }
     };
 
-    self.systems.append(&runner.run) catch unreachable;
+    const system = System{
+        .tag = tag orelse 0,
+        .func = &runner.run,
+    };
+
+    self.systems.append(system) catch unreachable;
 }
 
-pub fn update(self: *Self, gs: *GameState) !void {
-    for (self.systems.items) |system| {
-        try system(gs);
+pub fn update(self: *Self, gs: *GameState, tag: ?u32) !void {
+    const system_tag = tag orelse 0;
+    for (self.systems.items) |*system| {
+        if (system.tag != system_tag) {
+            continue;
+        }
+        try system.func(gs);
     }
 }
 
@@ -562,14 +577,14 @@ test "system test" {
     var ecs = Self.init(t.allocator);
     defer ecs.deinit();
 
-    ecs.addSystem(&system.moveRight);
+    ecs.addSystem(&system.moveRight, null);
 
     const e1 = try ecs.newEntity(.{Pos{}});
     const e2 = try ecs.newEntity(.{Pos{ .x = 10 }});
     const e3 = try ecs.newEntity(.{Pos{ .x = -1 }});
 
     var gs = GameState{ .ecs = ecs };
-    try gs.ecs.update(&gs);
+    try gs.ecs.update(&gs, null);
 
     const pos1 = ecs.getComponent(Pos, e1).?;
     const pos2 = ecs.getComponent(Pos, e2).?;

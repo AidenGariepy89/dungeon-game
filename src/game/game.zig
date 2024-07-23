@@ -58,15 +58,15 @@ pub fn setup(allocator: std.mem.Allocator) !GameState {
     try tilemap.loadLevel("../resources/levels/1");
 
     _ = try ecs.newEntity(.{tilemap});
-    ecs.addSystem(&renderTilemaps);
+    ecs.addSystem(&renderTilemaps, null);
 
     for (0..31) |i| {
         var box = TestSprite{};
         box.pos.y = @floatFromInt(4 * i);
         _ = try ecs.newEntity(.{box});
     }
-    ecs.addSystem(&moveSystem);
-    ecs.addSystem(&drawSystem);
+    ecs.addSystem(&moveSystem, null);
+    ecs.addSystem(&drawSystem, null);
 
     return GameState{
         .allocator = allocator,
@@ -111,7 +111,7 @@ pub fn run(gs: *GameState) !bool {
 
     rl.beginMode2D(gs.cam);
     // worldDraw(gs);
-    try gs.ecs.update(gs);
+    try gs.ecs.update(gs, null);
 
     rl.endMode2D();
 
