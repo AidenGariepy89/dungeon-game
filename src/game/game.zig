@@ -5,22 +5,29 @@ const w = @import("../window/window.zig");
 const asset = @import("../asset/asset.zig");
 const print = std.debug.print;
 const renderTilemaps = @import("../2D/tilemap.zig").renderTilemaps;
-const Tilemap = @import("../2D/tilemap.zig").Tilemap;
+const player = @import("player.zig");
 const AssetServer = asset.AssetServer;
-const Player = @import("../actors/player.zig").Player;
-const Node = @import("../2D/node.zig").Node;
+const Tilemap = @import("../2D/tilemap.zig").Tilemap;
 const ECS = @import("../ecs/ECS.zig");
 const GameState = @import("GameState.zig");
+const Camera = @import("Camera.zig");
 
 const TestSprite = struct {
     pos: rl.Vector2 = .{ .x = 0, .y = 0 },
     size: rl.Vector2 = .{ .x = 2, .y = 2 },
 };
 
+fn uiDraw(gs: *GameState) !void {
+    var buf: [32]u8 = undefined;
+    const text = try std.fmt.bufPrintZ(&buf, "FPS: {d}", .{1 / gs.dt});
+
+    rl.drawText(text, 10, 10, 20, rl.Color.black);
+}
+
 fn drawSystem(gs: *GameState) !void {
     var ecs = &gs.ecs;
     var buf: [32]ECS.Entity = undefined;
-    const res = try ecs.query(TestSprite, &buf);
+    const res = try ecs.query(&buf, .{TestSprite});
 
     for (res) |entity| {
         const box = ecs.getComponent(TestSprite, entity).?;
@@ -30,7 +37,7 @@ fn drawSystem(gs: *GameState) !void {
 
 fn moveSystem(gs: *GameState) !void {
     var buf: [32]ECS.Entity = undefined;
-    const res = try gs.ecs.query(TestSprite, &buf);
+    const res = try gs.ecs.query(&buf, .{TestSprite});
 
     for (res) |entity| {
         const box = gs.ecs.getComponent(TestSprite, entity).?;
@@ -39,13 +46,6 @@ fn moveSystem(gs: *GameState) !void {
 }
 
 pub fn setup(allocator: std.mem.Allocator) !GameState {
-    const cam = rl.Camera2D{
-        .rotation = 0,
-        .zoom = 12,
-        .offset = .{ .x = @floatFromInt(w.wh()), .y = @floatFromInt(w.hh()) },
-        .target = .{ .x = 0, .y = 0 },
-    };
-
     var asset_server = AssetServer.init(allocator);
 
     var ecs = ECS.init(allocator);
@@ -65,26 +65,23 @@ pub fn setup(allocator: std.mem.Allocator) !GameState {
         box.pos.y = @floatFromInt(4 * i);
         _ = try ecs.newEntity(.{box});
     }
-    ecs.addSystem(&moveSystem, null);
-    ecs.addSystem(&drawSystem, null);
+    ecs.addSystem(&moveSystem, 0);
+    ecs.addSystem(&drawSystem, 0);
+    ecs.addSystem(&uiDraw, 1);
+
+    try player.package(&ecs, &asset_server);
 
     return GameState{
         .allocator = allocator,
         .asset_server = asset_server,
         .ecs = ecs,
-
-        .cam = cam,
-        .camSpeed = 200,
-        // .assets = assetServer,
-        // .tilemap = tilemap,
-        // .player = player,
-        // .nodes = nodes,
+        .camera = Camera.init(0, 0),
     };
 }
 
 pub fn deinit(gs: *GameState) void {
     var buf: [1]ECS.Entity = undefined;
-    const res = gs.ecs.query(Tilemap, &buf) catch unreachable;
+    const res = gs.ecs.query(&buf, .{Tilemap}) catch unreachable;
     for (res) |entity| {
         var tilemap = gs.ecs.getComponent(Tilemap, entity).?;
         tilemap.deinit();
@@ -97,64 +94,22 @@ pub fn deinit(gs: *GameState) void {
 pub fn run(gs: *GameState) !bool {
     gs.dt = rl.getFrameTime();
 
-    camMove(gs);
-
-    // center cam
-    if (rl.isWindowResized()) {
-        gs.cam.offset.x = @floatFromInt(w.wh());
-        gs.cam.offset.y = @floatFromInt(w.hh());
-    }
+    gs.camera.update(gs.dt);
 
     rl.beginDrawing();
 
     rl.clearBackground(rl.Color.white);
 
-    rl.beginMode2D(gs.cam);
-    // worldDraw(gs);
-    try gs.ecs.update(gs, null);
+    rl.beginMode2D(gs.camera.cam);
+    // world draw
+    try gs.ecs.update(gs, 0);
 
     rl.endMode2D();
 
-    uiDraw(gs);
+    // ui draw
+    try gs.ecs.update(gs, 1);
 
     rl.endDrawing();
 
     return false;
-}
-
-fn worldDraw(gs: *GameState) void {
-    _ = gs;
-    // gs.tilemap.draw();
-    //
-    // for (gs.nodes.items) |node| {
-    //     node.draw();
-    // }
-}
-
-fn uiDraw(gs: *GameState) void {
-    _ = gs;
-}
-
-fn camMove(gs: *GameState) void {
-    var dir = rl.Vector2.zero();
-
-    if (rl.isKeyDown(.key_l) or rl.isKeyDown(.key_right)) {
-        dir.x += 1;
-    }
-    if (rl.isKeyDown(.key_h) or rl.isKeyDown(.key_left)) {
-        dir.x -= 1;
-    }
-    if (rl.isKeyDown(.key_j) or rl.isKeyDown(.key_down)) {
-        dir.y += 1;
-    }
-    if (rl.isKeyDown(.key_k) or rl.isKeyDown(.key_up)) {
-        dir.y -= 1;
-    }
-
-    var vel: rl.Vector2 = rl.Vector2.zero();
-    if (dir.equals(vel) != 1) {
-        vel = dir.normalize().scale(gs.camSpeed);
-    }
-
-    gs.cam.target = gs.cam.target.add(vel.scale(gs.dt));
 }

@@ -1,2 +1,3 @@
 - test system groups
 - consider an iterator for ECS systems?
+- documentation

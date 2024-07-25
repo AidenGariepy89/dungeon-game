@@ -175,31 +175,59 @@ pub fn update(self: *Self, gs: *GameState, tag: ?u32) !void {
 
 pub const QueryError = error{NoSpaceLeft};
 
-pub fn query(self: *Self, T: type, buf: []Entity) QueryError![]Entity {
-    const comp = self.getComponentType(T).?;
-    var sig = Signature.initEmpty();
-    sig.set(comp);
-    return self.getSigMatches(sig, buf);
+pub fn query(self: *Self, buf: []Entity, components: anytype) QueryError![]Entity {
+    const tuple_info = @typeInfo(@TypeOf(components));
+    if (tuple_info != .Struct) {
+        @compileError("param must be a tuple!");
+    }
+    if (!tuple_info.Struct.is_tuple) {
+        @compileError("param must be a tuple!");
+    }
+
+    var needle = Signature.initEmpty();
+    inline for (tuple_info.Struct.fields) |field| {
+        if (field.type != type) {
+            @compileError("tuple values must be types!");
+        }
+
+        const comp = @field(components, field.name);
+        const comp_type = self.getComponentType(comp).?;
+        needle.set(comp_type);
+    }
+
+    return self.getSigMatches(needle, buf);
 }
 
-pub fn query2(self: *Self, T: type, U: type, buf: []Entity) QueryError![]Entity {
-    const comp = self.getComponentType(T).?;
-    const comp2 = self.getComponentType(U).?;
-    var sig = Signature.initEmpty();
-    sig.set(comp);
-    sig.set(comp2);
-    return self.getSigMatches(sig, buf);
-}
+pub fn one(self: *Self, components: anytype) ?Entity {
+    const tuple_info = @typeInfo(@TypeOf(components));
+    if (tuple_info != .Struct) {
+        @compileError("param must be a tuple!");
+    }
+    if (!tuple_info.Struct.is_tuple) {
+        @compileError("param must be a tuple!");
+    }
 
-pub fn query3(self: *Self, T: type, U: type, V: type, buf: []Entity) QueryError![]Entity {
-    const comp = self.getComponentType(T).?;
-    const comp2 = self.getComponentType(U).?;
-    const comp3 = self.getComponentType(V).?;
-    var sig = Signature.initEmpty();
-    sig.set(comp);
-    sig.set(comp2);
-    sig.set(comp3);
-    return self.getSigMatches(sig, buf);
+    var needle = Signature.initEmpty();
+    inline for (tuple_info.Struct.fields) |field| {
+        if (field.type != type) {
+            @compileError("tuple values must be types!");
+        }
+
+        // const comp = self.getComponentType(field.type).?;
+        const comp = @field(components, field.name);
+        const comp_type = self.getComponentType(comp).?;
+        needle.set(comp_type);
+    }
+
+    for (0..self.entity_count) |i| {
+        const sig = self.entity_signatures[i];
+        if (needle.subsetOf(sig)) {
+            const entity: Entity = @intCast(i);
+            return entity;
+        }
+    }
+
+    return null;
 }
 
 fn getSigMatches(self: *Self, needle: Signature, buf: []Entity) QueryError![]Entity {
@@ -499,7 +527,7 @@ test "query test" {
     });
 
     var buf: [3]Entity = undefined;
-    var res = try ecs.query(Color, &buf);
+    var res = try ecs.query(&buf, .{Color});
     try t.expect(res.len == 3);
     try t.expectEqual(e1, res[0]);
     try t.expectEqual(e2, res[1]);
@@ -512,7 +540,7 @@ test "query test" {
     try t.expectEqual(Color{ .color = .green }, color2.*);
     try t.expectEqual(Color{ .color = .blue }, color3.*);
 
-    res = try ecs.query2(Color, Player, &buf);
+    res = try ecs.query(&buf, .{Color, Player});
     try t.expect(res.len == 2);
     try t.expectEqual(e1, res[0]);
     try t.expectEqual(e3, res[1]);
@@ -526,7 +554,7 @@ test "query test" {
     try t.expectEqual(Player{ .xp = 10, .health = 100 }, q2_player1.*);
     try t.expectEqual(Player{ .xp = 50, .health = 800 }, q2_player2.*);
 
-    res = try ecs.query3(Weapon, Player, Color, &buf);
+    res = try ecs.query(&buf, .{Weapon, Color, Player});
     try t.expect(res.len == 1);
     try t.expectEqual(e3, res[0]);
 
@@ -552,7 +580,7 @@ test "query out of space" {
     _ = try ecs.newEntity(.{Pos{}});
 
     var buf: [2]Entity = undefined;
-    const res = ecs.query(Pos, &buf);
+    const res = ecs.query(&buf, .{Pos});
     try t.expectError(QueryError.NoSpaceLeft, res);
 }
 
@@ -565,7 +593,7 @@ test "system test" {
     const system = struct {
         fn moveRight(gs: *GameState) !void {
             var buf: [3]Entity = undefined;
-            const q = try gs.ecs.query(Pos, &buf);
+            const q = try gs.ecs.query(&buf, .{Pos});
 
             for (q) |entity| {
                 var pos = gs.ecs.getComponent(Pos, entity).?;

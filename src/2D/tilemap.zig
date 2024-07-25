@@ -103,7 +103,7 @@ pub const Tilemap = struct {
 pub fn renderTilemaps(gs: *GameState) !void {
     var ecs = gs.ecs;
     var buf: [1]u32 = undefined;
-    const res = try ecs.query(Tilemap, &buf);
+    const res = try ecs.query(&buf, .{Tilemap});
 
     for (res) |entity| {
         const tilemap = ecs.getComponent(Tilemap, entity).?;
