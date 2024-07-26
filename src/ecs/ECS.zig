@@ -13,9 +13,19 @@ const MAX_COMPONENTS = 32;
 pub const Entity = u32;
 pub const Component = u8;
 pub const Signature = std.bit_set.IntegerBitSet(MAX_COMPONENTS);
-pub const System = struct {
-    tag: u32,
-    func: *const fn (gs: *GameState) anyerror!void,
+pub const System = *const fn (gs: *GameState) anyerror!void;
+pub const SystemTag = enum {
+    startup,
+    s1,
+    s2,
+    s3,
+    s4,
+    s5,
+    s6,
+    s7,
+    s8,
+    s9,
+    shutdown,
 };
 
 const ComponentMap = std.StringArrayHashMap(Component);
@@ -29,6 +39,8 @@ comp_arr_map: CompArrMap,
 component_map: ComponentMap,
 component_count: u32 = 0,
 systems: SystemList,
+/// end index is the start index of the next group
+system_tag_end_indices: [@typeInfo(SystemTag).Enum.fields.len]u32,
 
 pub fn newEntityEmpty(self: *Self) Entity {
     assert(self.entity_count < MAX_ENTITIES);
@@ -129,7 +141,7 @@ fn componentCount(self: *Self, T: type) usize {
 
 /// Add a system to the ECS. Specify a tag to update systems of that tag later.
 /// Tags default to 0.
-pub fn addSystem(self: *Self, comptime func_ptr: anytype, tag: ?u32) void {
+pub fn addSystem(self: *Self, comptime func_ptr: anytype, tag: SystemTag) void {
     const ptr_info = @typeInfo(@TypeOf(func_ptr));
     if (ptr_info != .Pointer) {
         @compileError("Systems must be function pointers");
@@ -155,21 +167,23 @@ pub fn addSystem(self: *Self, comptime func_ptr: anytype, tag: ?u32) void {
         }
     };
 
-    const system = System{
-        .tag = tag orelse 0,
-        .func = &runner.run,
-    };
-
-    self.systems.append(system) catch unreachable;
+    const tag_int = @intFromEnum(tag);
+    const end_idx = self.system_tag_end_indices[tag_int];
+    for (tag_int..self.system_tag_end_indices.len) |i| {
+        self.system_tag_end_indices[i] += 1;
+    }
+    self.systems.insert(end_idx, &runner.run) catch unreachable;
 }
 
-pub fn update(self: *Self, gs: *GameState, tag: ?u32) !void {
-    const system_tag = tag orelse 0;
-    for (self.systems.items) |*system| {
-        if (system.tag != system_tag) {
-            continue;
-        }
-        try system.func(gs);
+pub fn update(self: *Self, gs: *GameState, tag: SystemTag) !void {
+    const tag_end_indices_idx: u32 = @intFromEnum(tag);
+    const tag_end_indices_idx_prev: ?u32 = if (tag_end_indices_idx == 0) null else tag_end_indices_idx - 1;
+    const tag_start_idx: u32 = if (tag_end_indices_idx_prev) |i| self.system_tag_end_indices[i] else 0;
+    const tag_len: u32 = self.system_tag_end_indices[tag_end_indices_idx] - tag_start_idx;
+    const slice = self.systems.items[tag_start_idx..(tag_start_idx + tag_len)];
+
+    for (slice) |system| {
+        try system(gs);
     }
 }
 
@@ -253,6 +267,7 @@ pub fn init(allocator: Allocator) Self {
         .comp_arr_map = CompArrMap.init(allocator),
         .component_map = ComponentMap.init(allocator),
         .systems = SystemList.init(allocator),
+        .system_tag_end_indices = [_]u32{0} ** @typeInfo(SystemTag).Enum.fields.len,
     };
 }
 
@@ -540,7 +555,7 @@ test "query test" {
     try t.expectEqual(Color{ .color = .green }, color2.*);
     try t.expectEqual(Color{ .color = .blue }, color3.*);
 
-    res = try ecs.query(&buf, .{Color, Player});
+    res = try ecs.query(&buf, .{ Color, Player });
     try t.expect(res.len == 2);
     try t.expectEqual(e1, res[0]);
     try t.expectEqual(e3, res[1]);
@@ -554,7 +569,7 @@ test "query test" {
     try t.expectEqual(Player{ .xp = 10, .health = 100 }, q2_player1.*);
     try t.expectEqual(Player{ .xp = 50, .health = 800 }, q2_player2.*);
 
-    res = try ecs.query(&buf, .{Weapon, Color, Player});
+    res = try ecs.query(&buf, .{ Weapon, Color, Player });
     try t.expect(res.len == 1);
     try t.expectEqual(e3, res[0]);
 
@@ -605,14 +620,14 @@ test "system test" {
     var ecs = Self.init(t.allocator);
     defer ecs.deinit();
 
-    ecs.addSystem(&system.moveRight, null);
+    ecs.addSystem(&system.moveRight, .s1);
 
     const e1 = try ecs.newEntity(.{Pos{}});
     const e2 = try ecs.newEntity(.{Pos{ .x = 10 }});
     const e3 = try ecs.newEntity(.{Pos{ .x = -1 }});
 
     var gs = GameState{ .ecs = ecs };
-    try gs.ecs.update(&gs, null);
+    try gs.ecs.update(&gs, .s1);
 
     const pos1 = ecs.getComponent(Pos, e1).?;
     const pos2 = ecs.getComponent(Pos, e2).?;

@@ -10,8 +10,8 @@ const ECS = @import("../ecs/ECS.zig");
 const Vec2 = rl.Vector2;
 
 pub fn package(ecs: *ECS, asset_server: *AssetServer) !void {
-    ecs.addSystem(&updatePlayer, 0);
-    ecs.addSystem(&drawPlayer, 0);
+    ecs.addSystem(&updatePlayer, .s1);
+    ecs.addSystem(&drawPlayer, .s2);
 
     _ = try ecs.newEntity(.{
         Player{},

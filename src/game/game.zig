@@ -12,37 +12,11 @@ const ECS = @import("../ecs/ECS.zig");
 const GameState = @import("GameState.zig");
 const Camera = @import("Camera.zig");
 
-const TestSprite = struct {
-    pos: rl.Vector2 = .{ .x = 0, .y = 0 },
-    size: rl.Vector2 = .{ .x = 2, .y = 2 },
-};
-
 fn uiDraw(gs: *GameState) !void {
     var buf: [32]u8 = undefined;
     const text = try std.fmt.bufPrintZ(&buf, "FPS: {d}", .{1 / gs.dt});
 
     rl.drawText(text, 10, 10, 20, rl.Color.black);
-}
-
-fn drawSystem(gs: *GameState) !void {
-    var ecs = &gs.ecs;
-    var buf: [32]ECS.Entity = undefined;
-    const res = try ecs.query(&buf, .{TestSprite});
-
-    for (res) |entity| {
-        const box = ecs.getComponent(TestSprite, entity).?;
-        rl.drawRectangleV(box.pos, box.size, rl.Color.red);
-    }
-}
-
-fn moveSystem(gs: *GameState) !void {
-    var buf: [32]ECS.Entity = undefined;
-    const res = try gs.ecs.query(&buf, .{TestSprite});
-
-    for (res) |entity| {
-        const box = gs.ecs.getComponent(TestSprite, entity).?;
-        box.pos.x += 8.0 * gs.dt;
-    }
 }
 
 pub fn setup(allocator: std.mem.Allocator) !GameState {
@@ -58,18 +32,11 @@ pub fn setup(allocator: std.mem.Allocator) !GameState {
     try tilemap.loadLevel("../resources/levels/1");
 
     _ = try ecs.newEntity(.{tilemap});
-    ecs.addSystem(&renderTilemaps, null);
-
-    for (0..31) |i| {
-        var box = TestSprite{};
-        box.pos.y = @floatFromInt(4 * i);
-        _ = try ecs.newEntity(.{box});
-    }
-    ecs.addSystem(&moveSystem, 0);
-    ecs.addSystem(&drawSystem, 0);
-    ecs.addSystem(&uiDraw, 1);
+    ecs.addSystem(&renderTilemaps, .s2);
 
     try player.package(&ecs, &asset_server);
+
+    ecs.addSystem(&uiDraw, .s3);
 
     return GameState{
         .allocator = allocator,
@@ -95,6 +62,7 @@ pub fn run(gs: *GameState) !bool {
     gs.dt = rl.getFrameTime();
 
     gs.camera.update(gs.dt);
+    try gs.ecs.update(gs, .s1);
 
     rl.beginDrawing();
 
@@ -102,12 +70,12 @@ pub fn run(gs: *GameState) !bool {
 
     rl.beginMode2D(gs.camera.cam);
     // world draw
-    try gs.ecs.update(gs, 0);
+    try gs.ecs.update(gs, .s2);
 
     rl.endMode2D();
 
     // ui draw
-    try gs.ecs.update(gs, 1);
+    try gs.ecs.update(gs, .s3);
 
     rl.endDrawing();
 
