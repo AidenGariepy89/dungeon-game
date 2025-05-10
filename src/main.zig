@@ -35,3 +35,4 @@ test { _ = as; }
 test { _ = node; }
 test { _ = player; }
 test { _ = ECS; }
+test { _ = game; }

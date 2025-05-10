@@ -18,10 +18,12 @@ pub fn init(x: f32, y: f32) Self {
     };
 }
 
-pub fn update(self: *Self, dt: f32) void {
+pub fn resize(self: *Self) void {
     self.cam.offset.x = @floatFromInt(w.wh());
     self.cam.offset.y = @floatFromInt(w.hh());
+}
 
+pub fn freeCam(self: *Self, dt: f32) void {
     var dir = rl.Vector2.zero();
 
     if (rl.isKeyDown(.key_l) or rl.isKeyDown(.key_right)) {

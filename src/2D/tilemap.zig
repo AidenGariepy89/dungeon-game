@@ -101,12 +101,11 @@ pub const Tilemap = struct {
 };
 
 pub fn renderTilemaps(gs: *GameState) !void {
-    var ecs = gs.ecs;
     var buf: [1]u32 = undefined;
-    const res = try ecs.query(&buf, .{Tilemap});
+    const res = try gs.ecs.query(&buf, .{Tilemap});
 
     for (res) |entity| {
-        const tilemap = ecs.getComponent(Tilemap, entity).?;
+        const tilemap = gs.ecs.getComponent(Tilemap, entity).?;
         var texture: rl.Texture2D = undefined;
         if (tilemap.texture) |txtr| {
             texture = txtr;
@@ -119,5 +118,15 @@ pub fn renderTilemaps(gs: *GameState) !void {
         for (tilemap.tiles.items) |tile| {
             texture.drawRec(tile.slice, tile.pos, rl.Color.white);
         }
+    }
+}
+
+pub fn cleanupTilemaps(gs: *GameState) !void {
+    var buf: [1]u32 = undefined;
+    const res = try gs.ecs.query(&buf, .{Tilemap});
+
+    for (res) |entity| {
+        const tilemap = gs.ecs.getComponent(Tilemap, entity).?;
+        tilemap.deinit();
     }
 }
